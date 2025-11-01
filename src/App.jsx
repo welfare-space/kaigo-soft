@@ -121,6 +121,286 @@ const Icon = ({ name, className }) => {
   return <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>{icons[name]}</svg>;
 };
 
+// --- 国保連エラーチェック用データ ---
+const careInsuranceErrorCodes = [
+  {
+    code: '1001',
+    title: '被保険者番号の不一致',
+    description: '請求データの被保険者番号が国保連マスタの情報と一致していません。',
+    checkPoints: [
+      '利用者情報の被保険者番号が最新か確認する',
+      '数字の入力ミス（0とOなど）がないか確認する',
+    ],
+    resolution: '介護ソフト上の利用者情報を修正し、再度請求データを作成してください。',
+  },
+  {
+    code: '1005',
+    title: '資格喪失後の請求',
+    description: '資格喪失日以降のサービス提供分が請求されています。',
+    checkPoints: [
+      '資格有効期限とサービス提供日を突き合わせる',
+      '更新手続きの状況を自治体へ確認する',
+    ],
+    resolution: '資格有効期間内のみ請求が可能です。提供記録と保険者情報を確認し、期間外分は修正してください。',
+  },
+  {
+    code: '2002',
+    title: '単位数の上限超過',
+    description: '月次限度額を超える単位数が入力されています。',
+    checkPoints: [
+      '居宅介護支援で作成した給付管理票の上限値',
+      '加算や特別地域単価の算定方法',
+    ],
+    resolution: '給付管理票を確認し、上限内に収まるよう単位数を調整してください。必要に応じてケアマネジャーへ連絡を取ります。',
+  },
+  {
+    code: '3010',
+    title: '加算算定条件未達',
+    description: '算定した加算が必要条件を満たしていないと判断されました。',
+    checkPoints: [
+      '算定要件に必要な記録・会議録の有無',
+      '提供回数や配置基準が満たされているか',
+    ],
+    resolution: '算定根拠を再確認し、必要書類が整っていなければ請求から除外するか、根拠を整備した上で再請求します。',
+  },
+  {
+    code: '4013',
+    title: '同一日に複数サービス請求',
+    description: '同一事業所で重複するサービスコードが登録されています。',
+    checkPoints: [
+      '同日に複数のサービスを登録していないか',
+      '短期入所との併用が禁止されていないか',
+    ],
+    resolution: '組み合わせが認められているかサービスコード表を確認し、必要な方を残して重複分を削除します。',
+  },
+];
+
+const disabilityWelfareErrorCodes = [
+  {
+    code: 'D101',
+    title: '受給者証番号の誤り',
+    description: '障害福祉サービス受給者証に記載の番号と請求データが一致していません。',
+    checkPoints: [
+      '受給者証の番号と有効期間',
+      'サービス種別の記載内容',
+    ],
+    resolution: '最新の受給者証を確認し、番号を修正して再作成してください。',
+  },
+  {
+    code: 'D205',
+    title: '支給量の超過',
+    description: '支給決定量を超えるサービス提供量が登録されています。',
+    checkPoints: [
+      '支給決定量と提供実績の突合',
+      '他事業所の利用状況',
+    ],
+    resolution: '支給量の範囲内で提供実績を調整するか、自治体へ支給量の変更申請を検討します。',
+  },
+  {
+    code: 'D307',
+    title: '利用者負担上限額管理票未作成',
+    description: '上限管理事業所としての管理票が提出されていません。',
+    checkPoints: [
+      '上限管理事業所の指定状況',
+      '他事業所との情報連携',
+    ],
+    resolution: '利用者負担上限額管理票を作成し、記録を添付してから請求データを再送信してください。',
+  },
+  {
+    code: 'D411',
+    title: '送迎加算の算定不可',
+    description: '送迎加算を算定できないサービス種別で送迎加算が入力されています。',
+    checkPoints: [
+      'サービスコード表で送迎加算の可否を確認',
+      '他の加算との算定関係',
+    ],
+    resolution: '対象外のサービスに送迎加算は付けられません。加算を外して再送信してください。',
+  },
+  {
+    code: 'D520',
+    title: '成果報酬の算定誤り',
+    description: '就労系サービスで成果報酬を算定する際の対象条件が満たされていません。',
+    checkPoints: [
+      '就労継続支援の目標達成状況',
+      '支援記録と雇用契約の確認',
+    ],
+    resolution: '成果要件を満たしていない場合は請求から除外し、要件を確認してから再請求します。',
+  },
+];
+
+const ErrorCodeCheckerPage = () => {
+  const [selectedCategory, setSelectedCategory] = useState('care');
+  const [searchTerm, setSearchTerm] = useState('');
+  const [selectedError, setSelectedError] = useState(null);
+
+  const tabs = [
+    { id: 'care', label: '介護保険' },
+    { id: 'disability', label: '障害福祉' },
+  ];
+
+  const errorCodes = selectedCategory === 'care' ? careInsuranceErrorCodes : disabilityWelfareErrorCodes;
+
+  const filteredErrorCodes = errorCodes.filter(({ code, title, description }) => {
+    if (!searchTerm) return true;
+    const keyword = searchTerm.trim().toLowerCase();
+    return (
+      code.toLowerCase().includes(keyword) ||
+      title.toLowerCase().includes(keyword) ||
+      description.toLowerCase().includes(keyword)
+    );
+  });
+
+  const handleSelectCategory = (categoryId) => {
+    setSelectedCategory(categoryId);
+    setSearchTerm('');
+    setSelectedError(null);
+  };
+
+  const handleSearchChange = (event) => {
+    const value = event.target.value;
+    setSearchTerm(value);
+    if (value === '') {
+      setSelectedError(null);
+    }
+  };
+
+  const handleSelectError = (error) => {
+    setSelectedError(error);
+  };
+
+  const activeError = selectedError || filteredErrorCodes[0] || null;
+
+  return (
+    <div className="max-w-6xl mx-auto space-y-6">
+      <div className="bg-white shadow-sm rounded-2xl p-6">
+        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+          <div>
+            <div className="flex items-center gap-2 text-sky-600 font-semibold">
+              <Icon name="alert" className="w-5 h-5" />
+              <span>国保連請求エラーチェック</span>
+            </div>
+            <h1 className="text-2xl font-bold text-slate-900 mt-1">エラーコード検索ツール</h1>
+            <p className="text-sm text-slate-600 mt-2">
+              介護保険と障害福祉のエラーコードを切り替えて、発生原因と確認ポイントを即座に確認できます。
+            </p>
+          </div>
+          <div className="flex items-center gap-2 bg-sky-50 text-sky-700 px-4 py-2 rounded-xl text-sm">
+            <Icon name="info" className="w-4 h-4" />
+            <span>コード・キーワードで検索できます</span>
+          </div>
+        </div>
+        <div className="mt-6 flex flex-wrap gap-2">
+          {tabs.map((tab) => (
+            <button
+              key={tab.id}
+              onClick={() => handleSelectCategory(tab.id)}
+              className={`px-4 py-2 rounded-full text-sm font-medium transition-colors ${
+                selectedCategory === tab.id
+                  ? 'bg-sky-600 text-white shadow'
+                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+        <div className="mt-4 relative">
+          <span className="absolute inset-y-0 left-3 flex items-center text-slate-400">
+            <Icon name="search" className="w-4 h-4" />
+          </span>
+          <input
+            type="text"
+            value={searchTerm}
+            onChange={handleSearchChange}
+            placeholder="エラーコードやキーワードで検索 (例: 1001 / 資格)"
+            className="w-full bg-slate-50 border border-slate-200 rounded-xl py-2.5 pl-10 pr-4 text-sm focus:outline-none focus:ring-2 focus:ring-sky-400 focus:border-sky-400"
+          />
+        </div>
+      </div>
+
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,1.2fr),minmax(0,1fr)]">
+        <div className="bg-white shadow-sm rounded-2xl overflow-hidden">
+          <div className="border-b border-slate-200 px-6 py-4 flex items-center justify-between">
+            <h2 className="text-lg font-semibold text-slate-900">{tabs.find((tab) => tab.id === selectedCategory)?.label}のエラー一覧</h2>
+            <span className="text-xs font-medium px-3 py-1 rounded-full bg-slate-100 text-slate-600">
+              {filteredErrorCodes.length}件
+            </span>
+          </div>
+          <div className="max-h-[420px] overflow-y-auto">
+            {filteredErrorCodes.length === 0 ? (
+              <div className="px-6 py-16 text-center text-sm text-slate-500">
+                該当するエラーが見つかりませんでした。検索条件を変更してください。
+              </div>
+            ) : (
+              <ul className="divide-y divide-slate-100">
+                {filteredErrorCodes.map((error) => {
+                  const isActive = activeError?.code === error.code;
+                  return (
+                    <li key={error.code}>
+                      <button
+                        onClick={() => handleSelectError(error)}
+                        className={`w-full text-left px-6 py-4 flex items-start gap-4 transition-colors ${
+                          isActive ? 'bg-sky-50' : 'hover:bg-slate-50'
+                        }`}
+                      >
+                        <span
+                          className={`text-xs font-semibold tracking-wider px-2.5 py-1 rounded-full uppercase ${
+                            isActive ? 'bg-sky-600 text-white' : 'bg-slate-100 text-slate-600'
+                          }`}
+                        >
+                          {error.code}
+                        </span>
+                        <div>
+                          <p className="text-sm font-semibold text-slate-900">{error.title}</p>
+                          <p className="text-xs text-slate-500 mt-1">{error.description}</p>
+                        </div>
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
+        </div>
+
+        <div className="bg-white shadow-sm rounded-2xl p-6 h-fit">
+          {activeError ? (
+            <div className="space-y-4">
+              <div>
+                <span className="inline-flex items-center gap-2 text-xs font-medium text-sky-600 bg-sky-50 px-3 py-1 rounded-full">
+                  <Icon name="info" className="w-4 h-4" />
+                  詳細情報
+                </span>
+                <h3 className="mt-2 text-xl font-bold text-slate-900">{activeError.code}：{activeError.title}</h3>
+              </div>
+              <div className="bg-slate-50 border border-slate-100 rounded-xl p-4 text-sm text-slate-700">
+                {activeError.description}
+              </div>
+              <div>
+                <h4 className="text-sm font-semibold text-slate-900">確認ポイント</h4>
+                <ul className="mt-2 space-y-2 text-sm text-slate-700 list-disc pl-5">
+                  {activeError.checkPoints.map((point, index) => (
+                    <li key={index}>{point}</li>
+                  ))}
+                </ul>
+              </div>
+              <div>
+                <h4 className="text-sm font-semibold text-slate-900">対応方法</h4>
+                <p className="mt-2 text-sm text-slate-700 leading-relaxed">{activeError.resolution}</p>
+              </div>
+            </div>
+          ) : (
+            <div className="flex flex-col items-center justify-center text-center text-sm text-slate-500 py-10">
+              <Icon name="search" className="w-6 h-6 mb-2" />
+              <p>左側の一覧からエラーコードを選択してください。</p>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // ... (他のコンポーネントは省略) ...
 
 const App = () => {
@@ -144,8 +424,9 @@ const App = () => {
     { id: 'care-plans', label: '計画書作成', icon: 'file-plus' }, 
     { id: 'service-slips', label: 'サービス利用票', icon: 'file-check' }, 
     { id: 'schedule', label: 'スケジュール', icon: 'calendar' }, 
-    { id: 'manuals', label: 'マニュアル管理', icon: 'book' }, 
-    { id: 'attendance', label: '勤怠管理', icon: 'clock' }, 
+    { id: 'manuals', label: 'マニュアル管理', icon: 'book' },
+    { id: 'error-checker', label: '国保連エラー', icon: 'alert' },
+    { id: 'attendance', label: '勤怠管理', icon: 'clock' },
     { id: 'settings', label: '設定', icon: 'settings' },
   ];
 
@@ -196,6 +477,7 @@ const App = () => {
       case 'service-slips': return <ServiceSlipsPage clients={clients} careRecords={careRecords} />;
       case 'schedule': return <SchedulePage events={initialScheduleData} />;
       case 'manuals': return <ManualsPage manuals={manuals} onSelectManual={handleSelectManual} />;
+      case 'error-checker': return <ErrorCodeCheckerPage />;
       case 'attendance': return <AttendancePage records={attendanceRecords} />;
       case 'settings': return <PlaceholderPage title="設定" />;
       default: return <DashboardHome user={currentUser} onNavigate={handleNavigate} navItems={navItems} clients={clients} />;
